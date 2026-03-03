@@ -1,6 +1,6 @@
 /* BuildFileTracker - Core Implementation with Multiple Backends
  * Copyright (c) 2026 BuildFileTracker Contributors
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #define _GNU_SOURCE

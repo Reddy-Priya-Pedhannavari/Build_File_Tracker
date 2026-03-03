@@ -4,7 +4,7 @@ BuildFileTracker - Complete Python API
 Universal build file tracking with multiple backends and comprehensive reporting
 
 Copyright (c) 2026 BuildFileTracker Contributors
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import os

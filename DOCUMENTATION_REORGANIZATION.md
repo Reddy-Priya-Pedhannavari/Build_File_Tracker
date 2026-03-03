@@ -130,7 +130,7 @@ Clarity gained: 100% 🎉
 📁 Root/
 ├── README.md .......................... Main project overview + doc navigation
 ├── CONTRIBUTING.md ................... Contributing guidelines
-├── LICENSE ........................... MIT License
+├── LICENSE ........................... GNU GPLv3
 │
 └── 📁 docs/
     ├── INDEX.md ...................... 📍 START HERE - Complete navigation
@@ -209,7 +209,7 @@ Clarity gained: 100% 🎉
 - README.md - Main project hub
 - All doc files (12 total)
 - CONTRIBUTING.md - Contribution guidelines
-- LICENSE - MIT license
+- LICENSE - GNU GPLv3
 
 ### 🗑️ Deleted (No longer needed)
 - README_v2.md

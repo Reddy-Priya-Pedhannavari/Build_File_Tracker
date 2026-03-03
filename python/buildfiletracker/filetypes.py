@@ -9,7 +9,7 @@ Tracks ALL file types used in projects:
 - Documentation, databases, certificates, and more
 
 Copyright (c) 2026 BuildFileTracker Contributors
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import os

@@ -4,7 +4,7 @@ BuildFileTracker - Report Generation Module
 Supports: JSON, CSV, XML, XLSX, SPDX, CycloneDX, Markdown, HTML
 
 Copyright (c) 2026 BuildFileTracker Contributors
-SPDX-License-Identifier: MIT
+SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import json

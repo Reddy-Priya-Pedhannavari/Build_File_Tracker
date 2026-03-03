@@ -2,7 +2,7 @@
  * Universal build file access monitoring with multiple backends
  * 
  * Copyright (c) 2026 BuildFileTracker Contributors
- * SPDX-License-Identifier: MIT
+ * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
 #ifndef BUILDFILETRACKER_H

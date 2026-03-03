@@ -398,7 +398,7 @@ For builds accessing 100,000+ files:
 
 ### Q: What's the license?
 
-MIT License - free for commercial and personal use.
+GNU GPLv3 - free for commercial and personal use, with copyleft requirements.
 
 ### Q: Can I contribute?
 
