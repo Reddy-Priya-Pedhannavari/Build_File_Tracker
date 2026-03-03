@@ -1,0 +1,1 @@
+openpyxl>=3.0.0watchdog>=2.2.0  # Optional: For faster Windows file tracking (recommended on Windows)

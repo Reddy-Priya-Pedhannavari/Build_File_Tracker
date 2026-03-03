@@ -1,0 +1,76 @@
+# Build outputs
+*.o
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# Compiled executables
+*.exe
+*.out
+/src/libfiletracker.so
+/examples/*/build/
+/examples/*/obj/
+
+# Reports and logs
+build_reports/
+file_access_*.json
+file_access_*.csv
+report*.json
+report*.csv
+report*.xml
+report*.xlsx
+report*_summary.txt
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Autotools
+autom4te.cache/
+config.log
+config.status
+configure
+
+# Test outputs
+test_reports/
+*.test
+
+# Documentation builds
+docs/_build/
+docs/*.pdf
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# OS specific
+Thumbs.db
+.DS_Store
