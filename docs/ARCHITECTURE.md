@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document provides a clear, step-by-step overview of how the BuildFileTracker project is structured and how its components interact. Diagrams are divided by platform and build system to make navigation easier.
+This document shows how the pieces of BuildFileTracker fit together.  It uses simple pictures and short sentences so even a school kid can follow along.
 
 ---
 
@@ -19,7 +19,12 @@ flowchart LR
     Reports --> Output["report.json/csv/..." ]
 ```
 
-The two main entry points are the shell quick‑start script and the Python command‑line tool. Both ultimately require building the C library, which performs interception, and both produce raw tracking data that the Python tools convert into various report formats.
+There are two ways to start:
+
+* run the `quickstart.sh` script, or
+* run the Python program `buildfiletracker_cli.py`.
+
+Both ways first make the small C library, then run your build.  The library watches which files get opened.  After the build finishes, Python makes reports from the data.
 
 ---
 
@@ -37,7 +42,7 @@ flowchart LR
     TrackScripts --> Examples
 ```
 
-On Unix‑like systems you generally use a shell script or set `LD_PRELOAD` directly. Wrapper scripts and CMake/Makefile helpers live under `integrations/`.
+On Linux, macOS, or WSL you run a shell script.  The script sets a special variable (`LD_PRELOAD`) so the tracker library loads when your build runs.  The small helper files are in the `integrations/` folder.
 
 ### Windows
 
@@ -50,13 +55,13 @@ flowchart LR
     PythonInt --> TrackerLib["DLL via alternative method"]
 ```
 
-Native Windows support is limited; tracking is typically performed via the Python integration or using WSL.
+Windows does not support the tracker the same way.  You usually use the Python helper or run everything inside WSL.
 
 ---
 
 ## 3. Build-system integrations
 
-Each build system has its own helper file or snippet; these are not entry points themselves but are included by your project when you want to enable tracking.
+Different build tools (CMake, Make, Yocto, Python) have their own tiny helper files.  You add the helper to your project when you want to track its build.
 
 ```mermaid
 flowchart LR
@@ -77,7 +82,7 @@ The `integrations/` directory contains:
 - `python/buildfiletracker.py`
 - `yocto/filetracker.bbclass` and wrapper scripts (`track_build.sh`, `track_build.bat`, `track_build_universal.sh`)
 
-When your project invokes a build rule (e.g. `make all`), these helpers ensure the tracker library is loaded and environment variables are set.
+For example, when you run `make all`, the helper makes sure the tracker library starts and writes its data file.
 
 ---
 
@@ -100,4 +105,4 @@ Documentation files such as this one, plus the user guide and integration guide,
 
 ---
 
-The diagrams above are intended to help you locate the relevant files when you want to integrate BuildFileTracker with your own build system or extend support to a new platform.
+Look at the pictures to see which files you need to use.  They show where to find the scripts and helpers for each platform.
