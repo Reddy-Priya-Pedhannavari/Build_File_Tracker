@@ -2,7 +2,11 @@
 #include "file_tracker.h"
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef __linux__
 #include <dlfcn.h>
+#endif
+
 #include <unistd.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -55,7 +59,6 @@ void extract_package_info(const char* filepath, char* package_name, char* file_t
     
     // Try to extract package name from path
     // Look for patterns like /package-name/ or /packagename-version/
-    const char* path_parts = filepath;
     package_name[0] = '\0';
     
     // Simple heuristic: look for directory names after lib, include, or src

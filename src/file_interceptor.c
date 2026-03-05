@@ -1,9 +1,19 @@
 #define _GNU_SOURCE
+
+#ifdef __linux__
 #include <dlfcn.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+
+#ifndef RTLD_NEXT
+#define RTLD_NEXT ((void *) -1L)
+#endif
 #include <sys/stat.h>
 #include <sys/types.h>
 #include "file_tracker.h"
