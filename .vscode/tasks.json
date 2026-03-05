@@ -1,0 +1,72 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "C: Build Library",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/src && make",
+            "problemMatcher": ["$gcc"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "C: Clean Build",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/src && make clean",
+            "group": "build"
+        },
+        {
+            "label": "C: Rebuild",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/src && make clean && make",
+            "group": "build"
+        },
+        {
+            "label": "Python: Install Dependencies",
+            "type": "shell",
+            "command": "pip install -r ${workspaceFolder}/python/requirements.txt",
+            "group": "build",
+            "presentation": {
+                "echo": true,
+                "reveal": "always"
+            }
+        },
+        {
+            "label": "Python: Generate Report (JSON)",
+            "type": "shell",
+            "command": "python ${workspaceFolder}/python/report_generator.py report.json -f json",
+            "group": "test"
+        },
+        {
+            "label": "Python: Generate Report (CSV)",
+            "type": "shell",
+            "command": "python ${workspaceFolder}/python/report_generator.py report.csv -f csv",
+            "group": "test"
+        },
+        {
+            "label": "Python: Generate Report (All Formats)",
+            "type": "shell",
+            "command": "python ${workspaceFolder}/python/report_generator.py report -f all",
+            "group": "test"
+        },
+        {
+            "label": "Run CMake Example",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/examples/cmake_example && mkdir -p build && cd build && cmake .. && make",
+            "group": "test"
+        },
+        {
+            "label": "Run Makefile Example",
+            "type": "shell",
+            "command": "cd ${workspaceFolder}/examples/makefile_example && make",
+            "group": "test"
+        }
+    ]
+}

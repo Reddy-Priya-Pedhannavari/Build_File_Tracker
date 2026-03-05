@@ -1,0 +1,43 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "C: Debug with GDB",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/examples/cmake_example/build/example_app",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "C: Build Library",
+            "miDebuggerPath": "C:/Users/uif36770/mingw64/bin/gdb.exe"
+        },
+        {
+            "name": "Python: Current File",
+            "type": "python",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Python: Report Generator",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/python/report_generator.py",
+            "args": ["report.json", "-f", "all"],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
