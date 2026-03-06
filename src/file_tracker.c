@@ -126,7 +126,12 @@ FileAccessEntry* create_entry(const char* filepath) {
 
 // Track file access
 void track_file_access(const char* filepath) {
-    if (!tracker_initialized) tracker_init();
+    // Lazy initialization - only initialize when we actually need to track
+    if (!tracker_initialized) {
+        tracker_init();
+        if (!tracker_initialized) return; // Failed to initialize
+    }
+    
     if (!global_tracker) return;
     
     // Filter out non-relevant files

@@ -56,11 +56,6 @@ static void init_interceptor(void) {
         real_lstat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "lstat");
     }
     
-    // Initialize tracker only if all pointers are valid
-    if (real_fopen && real_open) {
-        tracker_init();
-    }
-    
     initialized = 1;
 }
 
