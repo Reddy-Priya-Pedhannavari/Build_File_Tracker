@@ -25,7 +25,7 @@
 #endif
 
 /* Internal hash table size */
-#define HASH_TABLE_SIZE 10007
+#define HASH_TABLE_SIZE 10000
 #define EVENT_BUFFER_SIZE 8192
 #define MAX_WATCHES 1024
 
