@@ -10,6 +10,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <errno.h>
 
 #ifndef RTLD_NEXT
 #define RTLD_NEXT ((void *) -1L)
