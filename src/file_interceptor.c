@@ -23,6 +23,7 @@
 // Function pointers for original functions
 static int (*real_open)(const char*, int, ...) = NULL;
 static int (*real_open64)(const char*, int, ...) = NULL;
+static int (*real_openat)(int, const char*, int, ...) = NULL;
 static FILE* (*real_fopen)(const char*, const char*) = NULL;
 static FILE* (*real_fopen64)(const char*, const char*) = NULL;
 static int (*real_access)(const char*, int) = NULL;
@@ -54,6 +55,9 @@ static void init_interceptor(void) {
     }
     if (!real_open64) {
         real_open64 = (int (*)(const char*, int, ...))dlsym(RTLD_NEXT, "open64");
+    }
+    if (!real_openat) {
+        real_openat = (int (*)(int, const char*, int, ...))dlsym(RTLD_NEXT, "openat");
     }
     if (!real_fopen) {
         real_fopen = (FILE* (*)(const char*, const char*))dlsym(RTLD_NEXT, "fopen");
@@ -87,9 +91,9 @@ int open(const char* pathname, int flags, ...) {
         
         // Call the real function directly
         if (mode) {
-            return syscall(SYS_open, pathname, flags, mode);
+            return syscall(SYS_openat, AT_FDCWD, pathname, flags, mode);
         } else {
-            return syscall(SYS_open, pathname, flags);
+            return syscall(SYS_openat, AT_FDCWD, pathname, flags, 0);
         }
     }
     
@@ -136,9 +140,9 @@ int open64(const char* pathname, int flags, ...) {
         
         // Call the real function directly
         if (mode) {
-            return syscall(SYS_open, pathname, flags | O_LARGEFILE, mode);
+            return syscall(SYS_openat, AT_FDCWD, pathname, flags | O_LARGEFILE, mode);
         } else {
-            return syscall(SYS_open, pathname, flags | O_LARGEFILE);
+            return syscall(SYS_openat, AT_FDCWD, pathname, flags | O_LARGEFILE, 0);
         }
     }
     
@@ -171,6 +175,50 @@ int open64(const char* pathname, int flags, ...) {
         errno = ENOSYS;
         return -1;
     }
+}
+
+// Intercepted openat function
+int openat(int dirfd, const char* pathname, int flags, ...) {
+    // Prevent recursion during initialization
+    if (initializing || init_in_progress) {
+        va_list args;
+        va_start(args, flags);
+        mode_t mode = (flags & O_CREAT) ? va_arg(args, mode_t) : 0;
+        va_end(args);
+
+        if (mode) {
+            return syscall(SYS_openat, dirfd, pathname, flags, mode);
+        } else {
+            return syscall(SYS_openat, dirfd, pathname, flags, 0);
+        }
+    }
+
+    init_in_progress = 1;
+    init_interceptor();
+    init_in_progress = 0;
+
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+        va_list args;
+        va_start(args, flags);
+        mode = va_arg(args, mode_t);
+        va_end(args);
+    }
+
+    if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR) {
+        track_file_access(pathname);
+    }
+
+    if (real_openat) {
+        if (mode) {
+            return real_openat(dirfd, pathname, flags, mode);
+        } else {
+            return real_openat(dirfd, pathname, flags);
+        }
+    }
+
+    errno = ENOSYS;
+    return -1;
 }
 
 // Intercepted fopen function
