@@ -32,15 +32,34 @@ static void init_interceptor(void) {
     static int initialized = 0;
     if (initialized) return;
     
-    real_open = (int (*)(const char*, int, ...))dlsym(RTLD_NEXT, "open");
-    real_open64 = (int (*)(const char*, int, ...))dlsym(RTLD_NEXT, "open64");
-    real_fopen = (FILE* (*)(const char*, const char*))dlsym(RTLD_NEXT, "fopen");
-    real_fopen64 = (FILE* (*)(const char*, const char*))dlsym(RTLD_NEXT, "fopen64");
-    real_access = (int (*)(const char*, int))dlsym(RTLD_NEXT, "access");
-    real_stat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "stat");
-    real_lstat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "lstat");
+    // Initialize function pointers safely
+    if (!real_open) {
+        real_open = (int (*)(const char*, int, ...))dlsym(RTLD_NEXT, "open");
+    }
+    if (!real_open64) {
+        real_open64 = (int (*)(const char*, int, ...))dlsym(RTLD_NEXT, "open64");
+    }
+    if (!real_fopen) {
+        real_fopen = (FILE* (*)(const char*, const char*))dlsym(RTLD_NEXT, "fopen");
+    }
+    if (!real_fopen64) {
+        real_fopen64 = (FILE* (*)(const char*, const char*))dlsym(RTLD_NEXT, "fopen64");
+    }
+    if (!real_access) {
+        real_access = (int (*)(const char*, int))dlsym(RTLD_NEXT, "access");
+    }
+    if (!real_stat) {
+        real_stat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "stat");
+    }
+    if (!real_lstat) {
+        real_lstat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "lstat");
+    }
     
-    tracker_init();
+    // Initialize tracker only if all pointers are valid
+    if (real_fopen && real_open) {
+        tracker_init();
+    }
+    
     initialized = 1;
 }
 
@@ -61,10 +80,17 @@ int open(const char* pathname, int flags, ...) {
         track_file_access(pathname);
     }
     
-    if (mode) {
-        return real_open(pathname, flags, mode);
+    // Call real function with NULL check
+    if (real_open) {
+        if (mode) {
+            return real_open(pathname, flags, mode);
+        } else {
+            return real_open(pathname, flags);
+        }
     } else {
-        return real_open(pathname, flags);
+        // Fallback if dlsym failed
+        errno = ENOSYS;
+        return -1;
     }
 }
 
@@ -85,10 +111,17 @@ int open64(const char* pathname, int flags, ...) {
         track_file_access(pathname);
     }
     
-    if (mode) {
-        return real_open64(pathname, flags, mode);
+    // Call real function with NULL check
+    if (real_open64) {
+        if (mode) {
+            return real_open64(pathname, flags, mode);
+        } else {
+            return real_open64(pathname, flags);
+        }
     } else {
-        return real_open64(pathname, flags);
+        // Fallback if dlsym failed
+        errno = ENOSYS;
+        return -1;
     }
 }
 
@@ -101,7 +134,14 @@ FILE* fopen(const char* pathname, const char* mode) {
         track_file_access(pathname);
     }
     
-    return real_fopen(pathname, mode);
+    // Call real function with NULL check
+    if (real_fopen) {
+        return real_fopen(pathname, mode);
+    } else {
+        // Fallback if dlsym failed
+        errno = ENOSYS;
+        return NULL;
+    }
 }
 
 // Intercepted fopen64 function
@@ -113,26 +153,57 @@ FILE* fopen64(const char* pathname, const char* mode) {
         track_file_access(pathname);
     }
     
-    return real_fopen64(pathname, mode);
+    // Call real function with NULL check
+    if (real_fopen64) {
+        return real_fopen64(pathname, mode);
+    } else {
+        // Fallback if dlsym failed
+        errno = ENOSYS;
+        return NULL;
+    }
 }
 
 // Intercepted access function
 int access(const char* pathname, int mode) {
     init_interceptor();
     track_file_access(pathname);
-    return real_access(pathname, mode);
+    
+    // Call real function with NULL check
+    if (real_access) {
+        return real_access(pathname, mode);
+    } else {
+        // Fallback if dlsym failed
+        errno = ENOSYS;
+        return -1;
+    }
 }
 
 // Intercepted stat function
 int stat(const char* pathname, struct stat* statbuf) {
     init_interceptor();
     track_file_access(pathname);
-    return real_stat(pathname, statbuf);
+    
+    // Call real function with NULL check
+    if (real_stat) {
+        return real_stat(pathname, statbuf);
+    } else {
+        // Fallback if dlsym failed
+        errno = ENOSYS;
+        return -1;
+    }
 }
 
 // Intercepted lstat function
 int lstat(const char* pathname, struct stat* statbuf) {
     init_interceptor();
     track_file_access(pathname);
-    return real_lstat(pathname, statbuf);
+    
+    // Call real function with NULL check
+    if (real_lstat) {
+        return real_lstat(pathname, statbuf);
+    } else {
+        // Fallback if dlsym failed
+        errno = ENOSYS;
+        return -1;
+    }
 }
