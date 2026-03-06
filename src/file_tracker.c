@@ -9,11 +9,31 @@
 
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <time.h>
 #include <errno.h>
 
+#ifdef _WIN32
+#include <direct.h>
+#endif
+
 FileTracker* global_tracker = NULL;
 static int tracker_initialized = 0;
+
+// Real fopen function pointer for writing reports (bypass LD_PRELOAD)
+static FILE* (*real_fopen_for_reports)(const char*, const char*) = NULL;
+static void init_real_fopen(void) {
+    if (!real_fopen_for_reports) {
+#ifdef __linux__
+        real_fopen_for_reports = (FILE* (*)(const char*, const char*))dlsym(RTLD_NEXT, "fopen");
+#else
+        real_fopen_for_reports = fopen;
+#endif
+        if (!real_fopen_for_reports) {
+            real_fopen_for_reports = fopen;
+        }
+    }
+}
 
 // Hash function for string
 unsigned long hash_string(const char* str) {
@@ -156,13 +176,74 @@ void track_file_access(const char* filepath) {
     pthread_mutex_unlock(&global_tracker->lock);
 }
 
+// Helper function to create directories recursively
+static int create_directory_recursive(const char* path) {
+    if (!path) return -1;
+    
+    char* dir_path = strdup(path);
+    if (!dir_path) return -1;
+    
+    // Find the last '/' to get the directory path
+    char* last_slash = strrchr(dir_path, '/');
+    if (!last_slash) {
+        free(dir_path);
+        return 0; // No directory to create
+    }
+    
+    *last_slash = '\0';
+    
+    // Check if directory exists
+    struct stat st;
+    if (stat(dir_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+        free(dir_path);
+        return 0; // Directory already exists
+    }
+    
+#ifdef __linux__
+    // Try to create the directory with reasonable permissions
+    // Using 0755 to match typical umask expectations
+    if (mkdir(dir_path, 0755) != 0) {
+        // If we got permission denied, the filesystem might be read-only
+        // Try parent directory approach
+        char* parent_slash = strrchr(dir_path, '/');
+        if (parent_slash && parent_slash != dir_path) {
+            *parent_slash = '\0';
+            create_directory_recursive(dir_path);
+            *parent_slash = '/';
+            mkdir(dir_path, 0755); // Try again
+        }
+    }
+#else
+    // Windows version
+    if (_mkdir(dir_path) != 0) {
+        // Try parent directory approach
+        char* parent_slash = strrchr(dir_path, '\\');
+        if (!parent_slash) parent_slash = strrchr(dir_path, '/');
+        if (parent_slash && parent_slash != dir_path) {
+            *parent_slash = '\0';
+            create_directory_recursive(dir_path);
+            *parent_slash = '/';
+            _mkdir(dir_path);
+        }
+    }
+#endif
+    
+    free(dir_path);
+    return 0;
+}
+
 // Write JSON report
 void write_report_json(const char* output_file) {
-    if (!global_tracker) return;
+    if (!global_tracker || !output_file) return;
     
-    FILE* f = fopen(output_file, "w");
+    init_real_fopen();
+    
+    // Create parent directory if it doesn't exist
+    create_directory_recursive(output_file);
+    
+    FILE* f = real_fopen_for_reports(output_file, "w");
     if (!f) {
-        fprintf(stderr, "Failed to open output file: %s\n", output_file);
+        fprintf(stderr, "Failed to open output file: %s (errno: %d)\n", output_file, errno);
         return;
     }
     
@@ -190,17 +271,20 @@ void write_report_json(const char* output_file) {
     fprintf(f, "\n  ]\n");
     fprintf(f, "}\n");
     fclose(f);
-    
-    printf("Report written to: %s\n", output_file);
 }
 
 // Write CSV report
 void write_report_csv(const char* output_file) {
-    if (!global_tracker) return;
+    if (!global_tracker || !output_file) return;
     
-    FILE* f = fopen(output_file, "w");
+    init_real_fopen();
+    
+    // Create parent directory if it doesn't exist
+    create_directory_recursive(output_file);
+    
+    FILE* f = real_fopen_for_reports(output_file, "w");
     if (!f) {
-        fprintf(stderr, "Failed to open output file: %s\n", output_file);
+        fprintf(stderr, "Failed to open output file: %s (errno: %d)\n", output_file, errno);
         return;
     }
     
@@ -217,7 +301,6 @@ void write_report_csv(const char* output_file) {
     }
     
     fclose(f);
-    printf("Report written to: %s\n", output_file);
 }
 
 // Cleanup tracker
