@@ -19,6 +19,7 @@
 
 FileTracker* global_tracker = NULL;
 static int tracker_initialized = 0;
+static __thread int tracking_in_progress = 0;
 
 // Real fopen function pointer for writing reports (bypass LD_PRELOAD)
 static FILE* (*real_fopen_for_reports)(const char*, const char*) = NULL;
@@ -126,20 +127,33 @@ FileAccessEntry* create_entry(const char* filepath) {
 
 // Track file access
 void track_file_access(const char* filepath) {
+    if (tracking_in_progress) return;
+    tracking_in_progress = 1;
+
     // Lazy initialization - only initialize when we actually need to track
     if (!tracker_initialized) {
         tracker_init();
-        if (!tracker_initialized) return; // Failed to initialize
+        if (!tracker_initialized) {
+            tracking_in_progress = 0;
+            return; // Failed to initialize
+        }
     }
     
-    if (!global_tracker) return;
+    if (!global_tracker) {
+        tracking_in_progress = 0;
+        return;
+    }
     
     // Filter out non-relevant files
-    if (!filepath || strlen(filepath) == 0) return;
+    if (!filepath || strlen(filepath) == 0) {
+        tracking_in_progress = 0;
+        return;
+    }
     
     // Skip certain directories and file types
     if (strstr(filepath, "/proc/") || strstr(filepath, "/sys/") || 
         strstr(filepath, "/dev/") || strstr(filepath, "/tmp/.X")) {
+        tracking_in_progress = 0;
         return;
     }
     
@@ -162,6 +176,7 @@ void track_file_access(const char* filepath) {
         if (strcmp(current->filepath, realpath_buf) == 0) {
             current->access_count++;
             pthread_mutex_unlock(&global_tracker->lock);
+            tracking_in_progress = 0;
             return;
         }
         prev = current;
@@ -179,6 +194,7 @@ void track_file_access(const char* filepath) {
     }
     
     pthread_mutex_unlock(&global_tracker->lock);
+    tracking_in_progress = 0;
 }
 
 // Helper function to create directories recursively
