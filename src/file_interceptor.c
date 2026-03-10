@@ -37,12 +37,12 @@ static int initializing = 0;
 // Initialize function pointers
 static void init_interceptor(void) {
     static int initialized = 0;
-    
-    // Return early if already initialized
-    if (initialized) return;
-    
-    // Prevent recursive calls during initialization
-    if (init_in_progress || initializing) return;
+
+    // Return early if already initialized or in progress
+    if (initialized || initializing) return;
+
+    // Mark init in progress so intercepted calls use syscalls
+    init_in_progress = 1;
     initializing = 1;
     
     // We must use syscall directly to avoid recursion
@@ -76,6 +76,7 @@ static void init_interceptor(void) {
     }
     
     initializing = 0;
+    init_in_progress = 0;
     initialized = 1;
 }
 
@@ -97,9 +98,7 @@ int open(const char* pathname, int flags, ...) {
         }
     }
     
-    init_in_progress = 1;
     init_interceptor();
-    init_in_progress = 0;
     
     mode_t mode = 0;
     if (flags & O_CREAT) {
@@ -146,9 +145,7 @@ int open64(const char* pathname, int flags, ...) {
         }
     }
     
-    init_in_progress = 1;
     init_interceptor();
-    init_in_progress = 0;
     
     mode_t mode = 0;
     if (flags & O_CREAT) {
@@ -193,9 +190,7 @@ int openat(int dirfd, const char* pathname, int flags, ...) {
         }
     }
 
-    init_in_progress = 1;
     init_interceptor();
-    init_in_progress = 0;
 
     mode_t mode = 0;
     if (flags & O_CREAT) {
@@ -236,9 +231,7 @@ FILE* fopen(const char* pathname, const char* mode) {
         return NULL;
     }
     
-    init_in_progress = 1;
     init_interceptor();
-    init_in_progress = 0;
     
     // Track if opening for reading
     if (mode && (mode[0] == 'r' || strchr(mode, '+'))) {
@@ -270,9 +263,7 @@ FILE* fopen64(const char* pathname, const char* mode) {
         return NULL;
     }
     
-    init_in_progress = 1;
     init_interceptor();
-    init_in_progress = 0;
     
     // Track if opening for reading
     if (mode && (mode[0] == 'r' || strchr(mode, '+'))) {
@@ -303,9 +294,7 @@ int access(const char* pathname, int mode) {
         return -1;
     }
     
-    init_in_progress = 1;
     init_interceptor();
-    init_in_progress = 0;
     
     track_file_access(pathname);
     
@@ -333,9 +322,7 @@ int stat(const char* pathname, struct stat* statbuf) {
         return -1;
     }
     
-    init_in_progress = 1;
     init_interceptor();
-    init_in_progress = 0;
     
     track_file_access(pathname);
     
