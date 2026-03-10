@@ -20,6 +20,9 @@
 FileTracker* global_tracker = NULL;
 static int tracker_initialized = 0;
 static __thread int tracking_in_progress = 0;
+#ifndef _WIN32
+static pthread_mutex_t init_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
 
 // Real fopen function pointer for writing reports (bypass LD_PRELOAD)
 static FILE* (*real_fopen_for_reports)(const char*, const char*) = NULL;
@@ -48,10 +51,21 @@ unsigned long hash_string(const char* str) {
 // Initialize the tracker
 void tracker_init(void) {
     if (tracker_initialized) return;
-    
+
+#ifndef _WIN32
+    pthread_mutex_lock(&init_lock);
+    if (tracker_initialized) {
+        pthread_mutex_unlock(&init_lock);
+        return;
+    }
+#endif
+
     global_tracker = (FileTracker*)malloc(sizeof(FileTracker));
     if (!global_tracker) {
         fprintf(stderr, "Failed to allocate memory for file tracker\n");
+#ifndef _WIN32
+        pthread_mutex_unlock(&init_lock);
+#endif
         return;
     }
     
@@ -61,6 +75,10 @@ void tracker_init(void) {
     
     // Register cleanup on exit
     atexit(tracker_cleanup);
+
+#ifndef _WIN32
+    pthread_mutex_unlock(&init_lock);
+#endif
 }
 
 // Extract package name and file type from path
