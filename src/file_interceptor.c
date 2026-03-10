@@ -11,10 +11,18 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#ifdef __linux__
 #include <sys/syscall.h>
+#endif
 
 #ifndef RTLD_NEXT
 #define RTLD_NEXT ((void *) -1L)
+#endif
+#if defined(__linux__) && !defined(SYS_openat)
+#include <linux/unistd.h>
+#ifdef __NR_openat
+#define SYS_openat __NR_openat
+#endif
 #endif
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -91,11 +99,16 @@ int open(const char* pathname, int flags, ...) {
         va_end(args);
         
         // Call the real function directly
+#if defined(__linux__) && defined(SYS_openat)
         if (mode) {
             return syscall(SYS_openat, AT_FDCWD, pathname, flags, mode);
         } else {
             return syscall(SYS_openat, AT_FDCWD, pathname, flags, 0);
         }
+#else
+        errno = ENOSYS;
+        return -1;
+#endif
     }
     
     init_interceptor();
@@ -138,11 +151,16 @@ int open64(const char* pathname, int flags, ...) {
         va_end(args);
         
         // Call the real function directly
+#if defined(__linux__) && defined(SYS_openat)
         if (mode) {
             return syscall(SYS_openat, AT_FDCWD, pathname, flags | O_LARGEFILE, mode);
         } else {
             return syscall(SYS_openat, AT_FDCWD, pathname, flags | O_LARGEFILE, 0);
         }
+#else
+        errno = ENOSYS;
+        return -1;
+#endif
     }
     
     init_interceptor();
@@ -183,11 +201,16 @@ int openat(int dirfd, const char* pathname, int flags, ...) {
         mode_t mode = (flags & O_CREAT) ? va_arg(args, mode_t) : 0;
         va_end(args);
 
+#if defined(__linux__) && defined(SYS_openat)
         if (mode) {
             return syscall(SYS_openat, dirfd, pathname, flags, mode);
         } else {
             return syscall(SYS_openat, dirfd, pathname, flags, 0);
         }
+#else
+        errno = ENOSYS;
+        return -1;
+#endif
     }
 
     init_interceptor();
