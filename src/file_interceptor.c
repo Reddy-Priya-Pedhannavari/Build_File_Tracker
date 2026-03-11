@@ -34,9 +34,6 @@ static int (*real_open64)(const char*, int, ...) = NULL;
 static int (*real_openat)(int, const char*, int, ...) = NULL;
 static FILE* (*real_fopen)(const char*, const char*) = NULL;
 static FILE* (*real_fopen64)(const char*, const char*) = NULL;
-static int (*real_access)(const char*, int) = NULL;
-static int (*real_stat)(const char*, struct stat*) = NULL;
-static int (*real_lstat)(const char*, struct stat*) = NULL;
 
 // Prevent recursive initialization during library loading
 static __thread int init_in_progress = 0;
@@ -73,16 +70,6 @@ static void init_interceptor(void) {
     if (!real_fopen64) {
         real_fopen64 = (FILE* (*)(const char*, const char*))dlsym(RTLD_NEXT, "fopen64");
     }
-    if (!real_access) {
-        real_access = (int (*)(const char*, int))dlsym(RTLD_NEXT, "access");
-    }
-    if (!real_stat) {
-        real_stat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "stat");
-    }
-    if (!real_lstat) {
-        real_lstat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "lstat");
-    }
-    
     initializing = 0;
     init_in_progress = 0;
     initialized = 1;
@@ -303,88 +290,4 @@ FILE* fopen64(const char* pathname, const char* mode) {
     }
 }
 
-// Intercepted access function
-int access(const char* pathname, int mode) {
-    // Prevent recursion during initialization
-    if (initializing || init_in_progress) {
-        static int (*libc_access)(const char*, int) = NULL;
-        if (!libc_access) {
-            libc_access = (int (*)(const char*, int))dlsym(RTLD_NEXT, "access");
-        }
-        if (libc_access) {
-            return libc_access(pathname, mode);
-        }
-        return -1;
-    }
-    
-    init_interceptor();
-    
-    track_file_access(pathname);
-    
-    // Call real function with NULL check
-    if (real_access) {
-        return real_access(pathname, mode);
-    } else {
-        // Fallback if dlsym failed
-        errno = ENOSYS;
-        return -1;
-    }
-}
 
-// Intercepted stat function
-int stat(const char* pathname, struct stat* statbuf) {
-    // Prevent recursion during initialization
-    if (initializing || init_in_progress) {
-        static int (*libc_stat)(const char*, struct stat*) = NULL;
-        if (!libc_stat) {
-            libc_stat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "stat");
-        }
-        if (libc_stat) {
-            return libc_stat(pathname, statbuf);
-        }
-        return -1;
-    }
-    
-    init_interceptor();
-    
-    track_file_access(pathname);
-    
-    // Call real function with NULL check
-    if (real_stat) {
-        return real_stat(pathname, statbuf);
-    } else {
-        // Fallback if dlsym failed
-        errno = ENOSYS;
-        return -1;
-    }
-}
-
-// Intercepted lstat function
-int lstat(const char* pathname, struct stat* statbuf) {
-    // Prevent recursion during initialization
-    if (initializing || init_in_progress) {
-        static int (*libc_lstat)(const char*, struct stat*) = NULL;
-        if (!libc_lstat) {
-            libc_lstat = (int (*)(const char*, struct stat*))dlsym(RTLD_NEXT, "lstat");
-        }
-        if (libc_lstat) {
-            return libc_lstat(pathname, statbuf);
-        }
-        return -1;
-    }
-    
-    init_in_progress = 1;
-    init_interceptor();
-    init_in_progress = 0;
-    
-    track_file_access(pathname);
-    
-    // Call real function with NULL check
-    if (real_lstat) {
-        return real_lstat(pathname, statbuf);
-    } else {
-        // Fallback if dlsym failed
-        errno = ENOSYS;
-        return -1;
-    }
-}

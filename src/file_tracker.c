@@ -175,23 +175,21 @@ void track_file_access(const char* filepath) {
         return;
     }
     
-    // Get realpath to normalize the path
-    char realpath_buf[MAX_PATH_LENGTH];
-    if (realpath(filepath, realpath_buf) == NULL) {
-        strncpy(realpath_buf, filepath, MAX_PATH_LENGTH - 1);
-        realpath_buf[MAX_PATH_LENGTH - 1] = '\0';
-    }
-    
-    unsigned long hash = hash_string(realpath_buf);
-    
+    // Use the raw path directly - avoid realpath() which triggers more syscalls
+    char norm_path[MAX_PATH_LENGTH];
+    strncpy(norm_path, filepath, MAX_PATH_LENGTH - 1);
+    norm_path[MAX_PATH_LENGTH - 1] = '\0';
+
+    unsigned long hash = hash_string(norm_path);
+
     pthread_mutex_lock(&global_tracker->lock);
-    
+
     // Look for existing entry
     FileAccessEntry* current = global_tracker->buckets[hash];
     FileAccessEntry* prev = NULL;
-    
+
     while (current) {
-        if (strcmp(current->filepath, realpath_buf) == 0) {
+        if (strcmp(current->filepath, norm_path) == 0) {
             current->access_count++;
             pthread_mutex_unlock(&global_tracker->lock);
             tracking_in_progress = 0;
@@ -202,7 +200,7 @@ void track_file_access(const char* filepath) {
     }
     
     // Create new entry
-    FileAccessEntry* new_entry = create_entry(realpath_buf);
+    FileAccessEntry* new_entry = create_entry(norm_path);
     if (new_entry) {
         if (prev) {
             prev->next = new_entry;
