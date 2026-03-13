@@ -48,7 +48,13 @@ static FILE* (*real_fopen)  (const char*, const char*)    = NULL;
 static FILE* (*real_fopen64)(const char*, const char*)    = NULL;
 
 // Thread-local reentrancy guard - prevents recursive hook calls
-static __thread int in_hook = 0;
+// NOTE: must NOT be __thread - TLS is not ready during early bash/glibc startup
+// on Ubuntu 18.04 (glibc 2.27), causing a segfault. track_file_access() has
+// its own __thread guard (tracking_in_progress) that prevents actual recursion.
+static volatile int in_hook = 0;
+
+// Set to 1 once constructor finishes - all hooks bail out until then
+static volatile int lib_ready = 0;
 
 // Raw syscall fallback used when real pointers are not yet available
 static inline int raw_openat(int dirfd, const char* path, int flags, mode_t mode) {
@@ -64,16 +70,15 @@ static inline int raw_openat(int dirfd, const char* path, int flags, mode_t mode
 // Using __attribute__((constructor)) eliminates all lazy-init race conditions.
 __attribute__((constructor))
 static void interceptor_init(void) {
-    in_hook = 1; // block recursive hook calls triggered by dlsym/tracker_init
+    in_hook = 1;
     real_open    = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open");
     real_open64  = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open64");
     real_openat  = (int   (*)(int, const char*, int, ...)) dlsym(RTLD_NEXT, "openat");
     real_fopen   = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen");
     real_fopen64 = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen64");
-    // Initialize the tracker now so it is fully ready before any hook fires.
-    // tracker_init also sets library_ready=1 as its last action.
     tracker_init();
     in_hook = 0;
+    lib_ready = 1;
 }
 
 // Intercepted open
@@ -84,7 +89,7 @@ int open(const char* pathname, int flags, ...) {
         mode = va_arg(ap, mode_t);
         va_end(ap);
     }
-    if (in_hook || !real_open)
+    if (!lib_ready || in_hook || !real_open)
         return raw_openat(AT_FDCWD, pathname, flags, mode);
 
     in_hook = 1;
@@ -103,7 +108,7 @@ int open64(const char* pathname, int flags, ...) {
         mode = va_arg(ap, mode_t);
         va_end(ap);
     }
-    if (in_hook || !real_open64)
+    if (!lib_ready || in_hook || !real_open64)
         return raw_openat(AT_FDCWD, pathname, flags | O_LARGEFILE, mode);
 
     in_hook = 1;
@@ -122,7 +127,7 @@ int openat(int dirfd, const char* pathname, int flags, ...) {
         mode = va_arg(ap, mode_t);
         va_end(ap);
     }
-    if (in_hook || !real_openat)
+    if (!lib_ready || in_hook || !real_openat)
         return raw_openat(dirfd, pathname, flags, mode);
 
     in_hook = 1;
@@ -136,7 +141,7 @@ int openat(int dirfd, const char* pathname, int flags, ...) {
 
 // Intercepted fopen
 FILE* fopen(const char* pathname, const char* mode) {
-    if (in_hook || !real_fopen) {
+    if (!lib_ready || in_hook || !real_fopen) {
         if (real_fopen) return real_fopen(pathname, mode);
         errno = ENOSYS; return NULL;
     }
@@ -149,7 +154,7 @@ FILE* fopen(const char* pathname, const char* mode) {
 
 // Intercepted fopen64
 FILE* fopen64(const char* pathname, const char* mode) {
-    if (in_hook || !real_fopen64) {
+    if (!lib_ready || in_hook || !real_fopen64) {
         if (real_fopen64) return real_fopen64(pathname, mode);
         errno = ENOSYS; return NULL;
     }
