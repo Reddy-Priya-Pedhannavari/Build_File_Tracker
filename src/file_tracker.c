@@ -286,9 +286,23 @@ static int create_directory_recursive(const char* path) {
     return 0;
 }
 
+// Count total tracked entries across all hash buckets
+static unsigned long count_tracked_files(void) {
+    unsigned long count = 0;
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        FileAccessEntry* e = global_tracker->buckets[i];
+        while (e) { count++; e = e->next; }
+    }
+    return count;
+}
+
 // Write JSON report
 void write_report_json(const char* output_file) {
     if (!global_tracker || !output_file) return;
+
+    // Skip processes that tracked nothing — avoids thousands of empty files
+    // in parallel builds where most short-lived subprocesses open no tracked paths.
+    if (count_tracked_files() == 0) return;
     
     init_real_fopen();
     
@@ -330,6 +344,7 @@ void write_report_json(const char* output_file) {
 // Write CSV report
 void write_report_csv(const char* output_file) {
     if (!global_tracker || !output_file) return;
+    if (count_tracked_files() == 0) return;
     
     init_real_fopen();
     
