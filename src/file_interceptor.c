@@ -66,17 +66,26 @@ static inline int raw_openat(int dirfd, const char* path, int flags, mode_t mode
 #endif
 }
 
-// Runs once when the shared library is loaded - before any application code.
-// Only resolve libc symbols - do NOT call tracker_init() or any malloc/pthread.
-// Calling malloc from a constructor crashes bash on glibc 2.27 because bash's
-// own allocator may not be ready. Tracking is initialized lazily on first call.
-__attribute__((constructor))
+// Resolve all real function pointers.
+// Called from constructor AND lazily from each hook as fallback.
+static void resolve_funcs(void) {
+    if (!real_open)
+        real_open    = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open");
+    if (!real_open64)
+        real_open64  = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open64");
+    if (!real_openat)
+        real_openat  = (int   (*)(int, const char*, int, ...)) dlsym(RTLD_NEXT, "openat");
+    if (!real_fopen)
+        real_fopen   = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen");
+    if (!real_fopen64)
+        real_fopen64 = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen64");
+}
+
+// Run with lowest user priority (65535 = last) so ALL other library constructors
+// have already run before ours. This avoids crashes from early constructor calls.
+__attribute__((constructor(65535)))
 static void interceptor_init(void) {
-    real_open    = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open");
-    real_open64  = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open64");
-    real_openat  = (int   (*)(int, const char*, int, ...)) dlsym(RTLD_NEXT, "openat");
-    real_fopen   = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen");
-    real_fopen64 = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen64");
+    resolve_funcs();
     lib_ready = 1;
 }
 
@@ -88,14 +97,18 @@ int open(const char* pathname, int flags, ...) {
         mode = va_arg(ap, mode_t);
         va_end(ap);
     }
-    if (!lib_ready || in_hook || !real_open)
+    // Lazily resolve if constructor hasn't run yet
+    if (!real_open) resolve_funcs();
+    // Must always call through - never fail when real function is available
+    if (in_hook || !real_open)
         return raw_openat(AT_FDCWD, pathname, flags, mode);
 
-    in_hook = 1;
-    if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR)
-        track_file_access(pathname);
-    in_hook = 0;
-
+    if (lib_ready) {
+        in_hook = 1;
+        if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR)
+            track_file_access(pathname);
+        in_hook = 0;
+    }
     return mode ? real_open(pathname, flags, mode) : real_open(pathname, flags);
 }
 
@@ -107,14 +120,16 @@ int open64(const char* pathname, int flags, ...) {
         mode = va_arg(ap, mode_t);
         va_end(ap);
     }
-    if (!lib_ready || in_hook || !real_open64)
+    if (!real_open64) resolve_funcs();
+    if (in_hook || !real_open64)
         return raw_openat(AT_FDCWD, pathname, flags | O_LARGEFILE, mode);
 
-    in_hook = 1;
-    if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR)
-        track_file_access(pathname);
-    in_hook = 0;
-
+    if (lib_ready) {
+        in_hook = 1;
+        if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR)
+            track_file_access(pathname);
+        in_hook = 0;
+    }
     return mode ? real_open64(pathname, flags, mode) : real_open64(pathname, flags);
 }
 
@@ -126,41 +141,44 @@ int openat(int dirfd, const char* pathname, int flags, ...) {
         mode = va_arg(ap, mode_t);
         va_end(ap);
     }
-    if (!lib_ready || in_hook || !real_openat)
+    if (!real_openat) resolve_funcs();
+    if (in_hook || !real_openat)
         return raw_openat(dirfd, pathname, flags, mode);
 
-    in_hook = 1;
-    if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR)
-        track_file_access(pathname);
-    in_hook = 0;
-
+    if (lib_ready) {
+        in_hook = 1;
+        if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR)
+            track_file_access(pathname);
+        in_hook = 0;
+    }
     return mode ? real_openat(dirfd, pathname, flags, mode)
                 : real_openat(dirfd, pathname, flags);
 }
 
 // Intercepted fopen
 FILE* fopen(const char* pathname, const char* mode) {
-    if (!lib_ready || in_hook || !real_fopen) {
-        if (real_fopen) return real_fopen(pathname, mode);
-        errno = ENOSYS; return NULL;
+    if (!real_fopen) resolve_funcs();
+    // CRITICAL: always call real_fopen - never return NULL due to our overhead
+    if (!real_fopen) { errno = ENOSYS; return NULL; }
+    if (lib_ready && !in_hook) {
+        in_hook = 1;
+        if (mode && (mode[0] == 'r' || strchr(mode, '+')))
+            track_file_access(pathname);
+        in_hook = 0;
     }
-    in_hook = 1;
-    if (mode && (mode[0] == 'r' || strchr(mode, '+')))
-        track_file_access(pathname);
-    in_hook = 0;
     return real_fopen(pathname, mode);
 }
 
 // Intercepted fopen64
 FILE* fopen64(const char* pathname, const char* mode) {
-    if (!lib_ready || in_hook || !real_fopen64) {
-        if (real_fopen64) return real_fopen64(pathname, mode);
-        errno = ENOSYS; return NULL;
+    if (!real_fopen64) resolve_funcs();
+    if (!real_fopen64) { errno = ENOSYS; return NULL; }
+    if (lib_ready && !in_hook) {
+        in_hook = 1;
+        if (mode && (mode[0] == 'r' || strchr(mode, '+')))
+            track_file_access(pathname);
+        in_hook = 0;
     }
-    in_hook = 1;
-    if (mode && (mode[0] == 'r' || strchr(mode, '+')))
-        track_file_access(pathname);
-    in_hook = 0;
     return real_fopen64(pathname, mode);
 }
 
