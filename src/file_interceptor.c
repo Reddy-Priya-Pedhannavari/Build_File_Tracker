@@ -17,6 +17,18 @@
 #define RTLD_NEXT ((void *) -1L)
 #endif
 
+#ifndef AT_FDCWD
+#define AT_FDCWD -100
+#endif
+
+#ifndef O_LARGEFILE
+#define O_LARGEFILE 0
+#endif
+
+#ifndef AT_FDCWD
+#define AT_FDCWD -100
+#endif
+
 #ifdef __linux__
 #include <sys/syscall.h>
 #ifndef SYS_openat
