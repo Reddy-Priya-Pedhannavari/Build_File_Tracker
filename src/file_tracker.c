@@ -2,6 +2,7 @@
 #include "file_tracker.h"
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #ifdef __linux__
 #include <dlfcn.h>
@@ -81,42 +82,71 @@ void extract_package_info(const char* filepath, char* package_name, char* file_t
     if (!filename) filename = filepath;
     else filename++;
     
-    // Extract file extension
+    // Extract file extension.
+    // Ignore pure-numeric extensions (e.g. ".00", ".03") which appear on
+    // Qualcomm QCN NV files and other binary data files — they are not real
+    // source-file extensions.
     const char* ext = strrchr(filename, '.');
-    if (ext) {
-        strncpy(file_type, ext + 1, 63);
-        file_type[63] = '\0';
+    if (ext && *(ext + 1) != '\0') {
+        const char* p = ext + 1;
+        int has_letter = 0;
+        while (*p) {
+            if (!isdigit((unsigned char)*p)) { has_letter = 1; break; }
+            p++;
+        }
+        if (has_letter) {
+            strncpy(file_type, ext + 1, 63);
+            file_type[63] = '\0';
+        } else {
+            strcpy(file_type, "unknown");
+        }
     } else {
         strcpy(file_type, "unknown");
     }
-    
-    // Try to extract package name from path
-    // Look for patterns like /package-name/ or /packagename-version/
+
+    // Extract package name from path.
+    // Strategy: scan for well-known directory markers; if none found, fall
+    // back to the immediate parent directory of the file.
     package_name[0] = '\0';
-    
-    // Simple heuristic: look for directory names after lib, include, or src
-    if (strstr(filepath, "/lib/")) {
-        const char* lib_pos = strstr(filepath, "/lib/");
-        const char* next_slash = strchr(lib_pos + 5, '/');
-        if (next_slash) {
-            int len = next_slash - (lib_pos + 5);
-            if (len > 0 && len < 255) {
-                strncpy(package_name, lib_pos + 5, len);
-                package_name[len] = '\0';
-            }
-        }
-    } else if (strstr(filepath, "/include/")) {
-        const char* inc_pos = strstr(filepath, "/include/");
-        const char* next_slash = strchr(inc_pos + 9, '/');
-        if (next_slash) {
-            int len = next_slash - (inc_pos + 9);
-            if (len > 0 && len < 255) {
-                strncpy(package_name, inc_pos + 9, len);
-                package_name[len] = '\0';
+
+    static const struct { const char* marker; int offset; } markers[] = {
+        { "/external/", 10 },
+        { "/packages/", 10 },
+        { "/recipes-",   9 },
+        { "/lib/",        5 },
+        { "/include/",    9 },
+        { "/src/",        5 },
+        { NULL, 0 }
+    };
+    for (int m = 0; markers[m].marker; m++) {
+        const char* pos = strstr(filepath, markers[m].marker);
+        if (pos) {
+            const char* pkg_start = pos + markers[m].offset;
+            const char* next_slash = strchr(pkg_start, '/');
+            if (next_slash) {
+                int len = (int)(next_slash - pkg_start);
+                if (len > 0 && len < 255) {
+                    strncpy(package_name, pkg_start, len);
+                    package_name[len] = '\0';
+                    break;
+                }
             }
         }
     }
-    
+
+    // Fallback: use the immediate parent directory name
+    if (package_name[0] == '\0' && filename > filepath + 1) {
+        const char* parent_end = filename - 1;  /* the '/' before filename */
+        const char* parent_start = parent_end - 1;
+        while (parent_start > filepath && *parent_start != '/') parent_start--;
+        if (*parent_start == '/') parent_start++;
+        int len = (int)(parent_end - parent_start);
+        if (len > 0 && len < 255) {
+            strncpy(package_name, parent_start, len);
+            package_name[len] = '\0';
+        }
+    }
+
     if (package_name[0] == '\0') {
         strcpy(package_name, "unknown");
     }
@@ -150,31 +180,31 @@ void track_file_access(const char* filepath) {
         }
     }
 
-    // Lazy initialization - only initialize when we actually need to track
-    if (!tracker_initialized) {
-        tracker_init();
-        if (!tracker_initialized) {
+    // Skip relative paths — real source files accessed during a build are
+    // always opened by absolute path. Relative-path opens are typically
+    // proprietary config/binary data files (e.g. QCN NV files) that are
+    // irrelevant to source-file dependency tracking.
+    if (filepath[0] != '/') {
+        tracking_in_progress = 0;
+        return;
+    }
+
+    // Skip system pseudo-filesystems and noise
+    if (strstr(filepath, "/proc/") || strstr(filepath, "/sys/") ||
+        strstr(filepath, "/dev/")  || strstr(filepath, "/tmp/.X")) {
+        tracking_in_progress = 0;
+        return;
+    }
+
+    // Optional: restrict tracking to files inside a specific directory tree.
+    // Set FILE_TRACKER_FILTER_DIR=/path/to/build to narrow results.
+    const char* filter_dir = getenv("FILE_TRACKER_FILTER_DIR");
+    if (filter_dir && filter_dir[0] != '\0') {
+        size_t flen = strlen(filter_dir);
+        if (strncmp(filepath, filter_dir, flen) != 0) {
             tracking_in_progress = 0;
-            return; // Failed to initialize
+            return;
         }
-    }
-    
-    if (!global_tracker) {
-        tracking_in_progress = 0;
-        return;
-    }
-    
-    // Filter out non-relevant files
-    if (!filepath || strlen(filepath) == 0) {
-        tracking_in_progress = 0;
-        return;
-    }
-    
-    // Skip certain directories and file types
-    if (strstr(filepath, "/proc/") || strstr(filepath, "/sys/") || 
-        strstr(filepath, "/dev/") || strstr(filepath, "/tmp/.X")) {
-        tracking_in_progress = 0;
-        return;
     }
     
     // Use the raw path directly - avoid realpath() which triggers more syscalls
@@ -330,16 +360,23 @@ void write_report_csv(const char* output_file) {
 // Cleanup tracker
 void tracker_cleanup(void) {
     if (!global_tracker) return;
-    
-    // Get output file from environment variable
+
+    // Get output path from environment variable.
+    // We append the PID so that every subprocess in a parallel build writes
+    // its own file instead of all processes overwriting the same path.
     const char* output_json = getenv("FILE_TRACKER_JSON");
-    const char* output_csv = getenv("FILE_TRACKER_CSV");
-    
+    const char* output_csv  = getenv("FILE_TRACKER_CSV");
+
+    char pid_json[MAX_PATH_LENGTH];
+    char pid_csv[MAX_PATH_LENGTH];
+
     if (output_json) {
-        write_report_json(output_json);
+        snprintf(pid_json, sizeof(pid_json), "%s.%d", output_json, (int)getpid());
+        write_report_json(pid_json);
     }
     if (output_csv) {
-        write_report_csv(output_csv);
+        snprintf(pid_csv, sizeof(pid_csv), "%s.%d", output_csv, (int)getpid());
+        write_report_csv(pid_csv);
     }
     
     // Free all entries
