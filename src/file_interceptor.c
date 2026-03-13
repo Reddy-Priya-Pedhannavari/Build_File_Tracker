@@ -67,17 +67,16 @@ static inline int raw_openat(int dirfd, const char* path, int flags, mode_t mode
 }
 
 // Runs once when the shared library is loaded - before any application code.
-// Using __attribute__((constructor)) eliminates all lazy-init race conditions.
+// Only resolve libc symbols - do NOT call tracker_init() or any malloc/pthread.
+// Calling malloc from a constructor crashes bash on glibc 2.27 because bash's
+// own allocator may not be ready. Tracking is initialized lazily on first call.
 __attribute__((constructor))
 static void interceptor_init(void) {
-    in_hook = 1;
     real_open    = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open");
     real_open64  = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open64");
     real_openat  = (int   (*)(int, const char*, int, ...)) dlsym(RTLD_NEXT, "openat");
     real_fopen   = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen");
     real_fopen64 = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen64");
-    tracker_init();
-    in_hook = 0;
     lib_ready = 1;
 }
 

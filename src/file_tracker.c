@@ -18,12 +18,10 @@
 #endif
 
 FileTracker* global_tracker = NULL;
-static int tracker_initialized = 0;
-static __thread int tracking_in_progress = 0;
+static volatile int tracker_initialized = 0;
+static volatile int tracker_initializing = 0;
+static volatile int tracking_in_progress = 0;
 volatile int library_ready = 0;
-#ifndef _WIN32
-static pthread_mutex_t init_lock = PTHREAD_MUTEX_INITIALIZER;
-#endif
 
 // Real fopen function pointer for writing reports (bypass LD_PRELOAD)
 static FILE* (*real_fopen_for_reports)(const char*, const char*) = NULL;
@@ -53,20 +51,18 @@ unsigned long hash_string(const char* str) {
 void tracker_init(void) {
     if (tracker_initialized) return;
 
+    // Use CAS to ensure only one thread/call initializes
+    // Avoids pthread_mutex_lock during early library load when pthread may not be ready
 #ifndef _WIN32
-    pthread_mutex_lock(&init_lock);
-    if (tracker_initialized) {
-        pthread_mutex_unlock(&init_lock);
-        return;
-    }
+    if (!__sync_bool_compare_and_swap(&tracker_initializing, 0, 1))
+        return; // another init in progress
+#else
+    tracker_initializing = 1;
 #endif
 
     global_tracker = (FileTracker*)malloc(sizeof(FileTracker));
     if (!global_tracker) {
-        fprintf(stderr, "Failed to allocate memory for file tracker\n");
-#ifndef _WIN32
-        pthread_mutex_unlock(&init_lock);
-#endif
+        tracker_initializing = 0;
         return;
     }
     
@@ -77,10 +73,6 @@ void tracker_init(void) {
 
     // Register cleanup on exit
     atexit(tracker_cleanup);
-
-#ifndef _WIN32
-    pthread_mutex_unlock(&init_lock);
-#endif
 }
 
 // Extract package name and file type from path
@@ -147,8 +139,16 @@ FileAccessEntry* create_entry(const char* filepath) {
 
 // Track file access
 void track_file_access(const char* filepath) {
-    if (!library_ready || tracking_in_progress) return;
+    if (tracking_in_progress) return;
     tracking_in_progress = 1;
+
+    if (!tracker_initialized) {
+        tracker_init();
+        if (!tracker_initialized) {
+            tracking_in_progress = 0;
+            return;
+        }
+    }
 
     // Lazy initialization - only initialize when we actually need to track
     if (!tracker_initialized) {
