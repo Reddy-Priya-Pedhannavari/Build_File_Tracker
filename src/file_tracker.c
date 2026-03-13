@@ -3,9 +3,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <fcntl.h>
 
 #ifdef __linux__
 #include <dlfcn.h>
+#include <sys/syscall.h>
+#ifndef SYS_openat
+#define SYS_openat 257
+#endif
 #endif
 
 #include <unistd.h>
@@ -23,21 +28,6 @@ static volatile int tracker_initialized = 0;
 static volatile int tracker_initializing = 0;
 static volatile int tracking_in_progress = 0;
 volatile int library_ready = 0;
-
-// Real fopen function pointer for writing reports (bypass LD_PRELOAD)
-static FILE* (*real_fopen_for_reports)(const char*, const char*) = NULL;
-static void init_real_fopen(void) {
-    if (!real_fopen_for_reports) {
-#ifdef __linux__
-        real_fopen_for_reports = (FILE* (*)(const char*, const char*))dlsym(RTLD_NEXT, "fopen");
-#else
-        real_fopen_for_reports = fopen;
-#endif
-        if (!real_fopen_for_reports) {
-            real_fopen_for_reports = fopen;
-        }
-    }
-}
 
 // Hash function for string
 unsigned long hash_string(const char* str) {
@@ -296,103 +286,98 @@ static unsigned long count_tracked_files(void) {
     return count;
 }
 
-// Write JSON report
-void write_report_json(const char* output_file) {
-    if (!global_tracker || !output_file) return;
-
-    // Skip processes that tracked nothing — avoids thousands of empty files
-    // in parallel builds where most short-lived subprocesses open no tracked paths.
-    if (count_tracked_files() == 0) return;
-    
-    init_real_fopen();
-    
-    // Create parent directory if it doesn't exist
-    create_directory_recursive(output_file);
-    
-    FILE* f = real_fopen_for_reports(output_file, "w");
-    if (!f) {
-        fprintf(stderr, "Failed to open output file: %s (errno: %d)\n", output_file, errno);
-        return;
-    }
-    
-    fprintf(f, "{\n");
-    fprintf(f, "  \"report_type\": \"build_file_tracker\",\n");
-    fprintf(f, "  \"timestamp\": \"%ld\",\n", time(NULL));
-    fprintf(f, "  \"accessed_files\": [\n");
-    
-    int first = 1;
-    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-        FileAccessEntry* entry = global_tracker->buckets[i];
-        while (entry) {
-            if (!first) fprintf(f, ",\n");
-            fprintf(f, "    {\n");
-            fprintf(f, "      \"filepath\": \"%s\",\n", entry->filepath);
-            fprintf(f, "      \"package\": \"%s\",\n", entry->package_name);
-            fprintf(f, "      \"file_type\": \"%s\",\n", entry->file_type);
-            fprintf(f, "      \"access_count\": %lu\n", entry->access_count);
-            fprintf(f, "    }");
-            first = 0;
-            entry = entry->next;
-        }
-    }
-    
-    fprintf(f, "\n  ]\n");
-    fprintf(f, "}\n");
-    fclose(f);
+// Open the output file bypassing our own LD_PRELOAD openat hook.
+// On Linux we use syscall(SYS_openat) directly; on other platforms fall back
+// to the regular open().
+static int open_output_file(const char* path) {
+#ifdef __linux__
+    return (int)syscall(SYS_openat, AT_FDCWD, path,
+                        O_WRONLY | O_CREAT | O_APPEND, 0644);
+#else
+    return open(path, O_WRONLY | O_CREAT | O_APPEND, 0644);
+#endif
 }
 
-// Write CSV report
-void write_report_csv(const char* output_file) {
+// Append all tracked entries as JSONL (one JSON object per line) to the
+// shared output file.  Because every process uses O_APPEND and each
+// write() call is a single line well under PIPE_BUF (4096 bytes), the
+// writes are atomic on Linux — no per-PID splitting needed.
+static void flush_to_jsonl(const char* output_file) {
     if (!global_tracker || !output_file) return;
     if (count_tracked_files() == 0) return;
-    
-    init_real_fopen();
-    
-    // Create parent directory if it doesn't exist
+
     create_directory_recursive(output_file);
-    
-    FILE* f = real_fopen_for_reports(output_file, "w");
-    if (!f) {
-        fprintf(stderr, "Failed to open output file: %s (errno: %d)\n", output_file, errno);
+
+    int fd = open_output_file(output_file);
+    if (fd < 0) {
+        fprintf(stderr, "BuildFileTracker: cannot open %s (errno %d)\n",
+                output_file, errno);
         return;
     }
-    
-    fprintf(f, "filepath,package,file_type,access_count\n");
-    
+
     for (int i = 0; i < HASH_TABLE_SIZE; i++) {
         FileAccessEntry* entry = global_tracker->buckets[i];
         while (entry) {
-            fprintf(f, "\"%s\",\"%s\",\"%s\",%lu\n", 
-                    entry->filepath, entry->package_name, 
-                    entry->file_type, entry->access_count);
+            // JSON-escape the filepath (handle '"' and '\\')
+            char escaped[MAX_PATH_LENGTH * 2];
+            const char* src = entry->filepath;
+            char* dst = escaped;
+            while (*src && (dst - escaped) < (int)sizeof(escaped) - 2) {
+                if (*src == '"' || *src == '\\') *dst++ = '\\';
+                *dst++ = *src++;
+            }
+            *dst = '\0';
+
+            char line[2048];
+            int len = snprintf(line, sizeof(line),
+                "{\"filepath\":\"%s\",\"package\":\"%s\","
+                "\"file_type\":\"%s\",\"access_count\":%lu}\n",
+                escaped, entry->package_name,
+                entry->file_type, entry->access_count);
+            if (len > 0 && len < (int)sizeof(line))
+                write(fd, line, (size_t)len);
             entry = entry->next;
         }
     }
-    
-    fclose(f);
+    close(fd);
+}
+
+// Append all tracked entries as CSV rows to the shared output file.
+static void flush_to_csv(const char* output_file) {
+    if (!global_tracker || !output_file) return;
+    if (count_tracked_files() == 0) return;
+
+    create_directory_recursive(output_file);
+
+    int fd = open_output_file(output_file);
+    if (fd < 0) return;
+
+    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
+        FileAccessEntry* entry = global_tracker->buckets[i];
+        while (entry) {
+            char line[MAX_PATH_LENGTH + 256];
+            int len = snprintf(line, sizeof(line), "\"%s\",\"%s\",\"%s\",%lu\n",
+                               entry->filepath, entry->package_name,
+                               entry->file_type, entry->access_count);
+            if (len > 0 && len < (int)sizeof(line))
+                write(fd, line, (size_t)len);
+            entry = entry->next;
+        }
+    }
+    close(fd);
 }
 
 // Cleanup tracker
 void tracker_cleanup(void) {
     if (!global_tracker) return;
 
-    // Get output path from environment variable.
-    // We append the PID so that every subprocess in a parallel build writes
-    // its own file instead of all processes overwriting the same path.
     const char* output_json = getenv("FILE_TRACKER_JSON");
     const char* output_csv  = getenv("FILE_TRACKER_CSV");
 
-    char pid_json[MAX_PATH_LENGTH];
-    char pid_csv[MAX_PATH_LENGTH];
-
-    if (output_json) {
-        snprintf(pid_json, sizeof(pid_json), "%s.%d", output_json, (int)getpid());
-        write_report_json(pid_json);
-    }
-    if (output_csv) {
-        snprintf(pid_csv, sizeof(pid_csv), "%s.%d", output_csv, (int)getpid());
-        write_report_csv(pid_csv);
-    }
+    // All processes append to the SAME file — no per-PID splitting.
+    // O_APPEND + write() is atomic for lines < PIPE_BUF on Linux.
+    if (output_json) flush_to_jsonl(output_json);
+    if (output_csv)  flush_to_csv(output_csv);
     
     // Free all entries
     for (int i = 0; i < HASH_TABLE_SIZE; i++) {
