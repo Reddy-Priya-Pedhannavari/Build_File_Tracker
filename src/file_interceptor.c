@@ -64,12 +64,15 @@ static inline int raw_openat(int dirfd, const char* path, int flags, mode_t mode
 // Using __attribute__((constructor)) eliminates all lazy-init race conditions.
 __attribute__((constructor))
 static void interceptor_init(void) {
-    in_hook = 1; // block recursive hook calls triggered by dlsym
+    in_hook = 1; // block recursive hook calls triggered by dlsym/tracker_init
     real_open    = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open");
     real_open64  = (int   (*)(const char*, int, ...))      dlsym(RTLD_NEXT, "open64");
     real_openat  = (int   (*)(int, const char*, int, ...)) dlsym(RTLD_NEXT, "openat");
     real_fopen   = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen");
     real_fopen64 = (FILE* (*)(const char*, const char*))   dlsym(RTLD_NEXT, "fopen64");
+    // Initialize the tracker now so it is fully ready before any hook fires.
+    // tracker_init also sets library_ready=1 as its last action.
+    tracker_init();
     in_hook = 0;
 }
 

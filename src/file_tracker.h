@@ -30,6 +30,7 @@ typedef struct {
 
 // Global tracker instance
 extern FileTracker* global_tracker;
+extern volatile int library_ready;
 
 // Function declarations
 void tracker_init(void);

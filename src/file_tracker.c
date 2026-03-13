@@ -20,6 +20,7 @@
 FileTracker* global_tracker = NULL;
 static int tracker_initialized = 0;
 static __thread int tracking_in_progress = 0;
+volatile int library_ready = 0;
 #ifndef _WIN32
 static pthread_mutex_t init_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
@@ -72,7 +73,8 @@ void tracker_init(void) {
     memset(global_tracker->buckets, 0, sizeof(global_tracker->buckets));
     pthread_mutex_init(&global_tracker->lock, NULL);
     tracker_initialized = 1;
-    
+    library_ready = 1;
+
     // Register cleanup on exit
     atexit(tracker_cleanup);
 
@@ -145,7 +147,7 @@ FileAccessEntry* create_entry(const char* filepath) {
 
 // Track file access
 void track_file_access(const char* filepath) {
-    if (tracking_in_progress) return;
+    if (!library_ready || tracking_in_progress) return;
     tracking_in_progress = 1;
 
     // Lazy initialization - only initialize when we actually need to track
