@@ -213,58 +213,43 @@ void track_file_access(const char* filepath) {
     tracking_in_progress = 0;
 }
 
-// Helper function to create directories recursively
+// Helper function to create directories recursively (mkdir -p equivalent)
 static int create_directory_recursive(const char* path) {
     if (!path) return -1;
-    
+
+    // Work on the directory portion of the file path
     char* dir_path = strdup(path);
     if (!dir_path) return -1;
-    
-    // Find the last '/' to get the directory path
+
     char* last_slash = strrchr(dir_path, '/');
     if (!last_slash) {
         free(dir_path);
-        return 0; // No directory to create
+        return 0;
     }
-    
     *last_slash = '\0';
-    
-    // Check if directory exists
-    struct stat st;
-    if (stat(dir_path, &st) == 0 && S_ISDIR(st.st_mode)) {
-        free(dir_path);
-        return 0; // Directory already exists
-    }
-    
-#ifdef __linux__
-    // Try to create the directory with reasonable permissions
-    // Using 0755 to match typical umask expectations
-    if (mkdir(dir_path, 0755) != 0) {
-        // If we got permission denied, the filesystem might be read-only
-        // Try parent directory approach
-        char* parent_slash = strrchr(dir_path, '/');
-        if (parent_slash && parent_slash != dir_path) {
-            *parent_slash = '\0';
-            create_directory_recursive(dir_path);
-            *parent_slash = '/';
-            mkdir(dir_path, 0755); // Try again
-        }
-    }
+
+    // Walk through each component and create if missing
+    char tmp[MAX_PATH_LENGTH];
+    snprintf(tmp, sizeof(tmp), "%s", dir_path);
+    size_t len = strlen(tmp);
+    if (len == 0) { free(dir_path); return 0; }
+
+    for (size_t i = 1; i <= len; i++) {
+        if (tmp[i] == '/' || tmp[i] == '\0') {
+            char save = tmp[i];
+            tmp[i] = '\0';
+            struct stat st;
+            if (stat(tmp, &st) != 0) {
+#ifdef _WIN32
+                _mkdir(tmp);
 #else
-    // Windows version
-    if (_mkdir(dir_path) != 0) {
-        // Try parent directory approach
-        char* parent_slash = strrchr(dir_path, '\\');
-        if (!parent_slash) parent_slash = strrchr(dir_path, '/');
-        if (parent_slash && parent_slash != dir_path) {
-            *parent_slash = '\0';
-            create_directory_recursive(dir_path);
-            *parent_slash = '/';
-            _mkdir(dir_path);
+                mkdir(tmp, 0755);
+#endif
+            }
+            tmp[i] = save;
         }
     }
-#endif
-    
+
     free(dir_path);
     return 0;
 }
