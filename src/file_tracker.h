@@ -11,7 +11,11 @@
 #endif
 
 #define MAX_PATH_LENGTH 4096
-#define HASH_TABLE_SIZE 10000
+// Reduced from 10000 to 1024 to cut per-process memory from ~80KB to ~8KB.
+// A smaller table means more hash collisions (linked-list chaining) but each
+// process in a parallel build typically opens only a handful of tracked files,
+// so the chains stay very short in practice.
+#define HASH_TABLE_SIZE 1024
 
 // File access entry structure
 typedef struct FileAccessEntry {
