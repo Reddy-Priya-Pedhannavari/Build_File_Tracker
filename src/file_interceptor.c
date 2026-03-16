@@ -15,6 +15,7 @@
 #ifdef __linux__
 #include <dlfcn.h>
 #include <sys/syscall.h>
+#include <unistd.h>
 #endif
 
 #include <stdio.h>
@@ -78,7 +79,7 @@ int openat(int dirfd, const char* pathname, int flags, ...) {
         real_openat = (int (*)(int, const char*, int, ...)) dlsym(RTLD_NEXT, "openat");
 
     /* Always call through - tracking is best-effort, never impede the caller */
-    if (lib_ready && !in_hook && pathname) {
+    if (lib_ready && !in_hook) {
         if ((flags & O_ACCMODE) == O_RDONLY || (flags & O_ACCMODE) == O_RDWR) {
             in_hook = 1;
             track_file_access(pathname);

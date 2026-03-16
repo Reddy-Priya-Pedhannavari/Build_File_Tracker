@@ -360,7 +360,7 @@ static void flush_to_csv(const char* output_file) {
                                entry->filepath, entry->package_name,
                                entry->file_type, entry->access_count);
             if (len > 0 && len < (int)sizeof(line))
-                write(fd, line, (size_t)len);
+                (void)write(fd, line, (size_t)len);
             entry = entry->next;
         }
     }
