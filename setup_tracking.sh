@@ -22,13 +22,10 @@ _bft_on() {
     export FILE_TRACKER_JSON="${report_dir}/reports.json"
     export FILE_TRACKER_FILTER_DIR="${report_dir%/*}"  # parent of report_dir
 
-    # Use both .so files if the 32-bit one exists, otherwise only 64-bit.
-    # The dynamic linker silently ignores the wrong-arch one — no error spam.
-    if [ -f "${_BFT_LIB32}" ]; then
-        export LD_PRELOAD="${_BFT_LIB64}:${_BFT_LIB32}"
-    else
-        export LD_PRELOAD="${_BFT_LIB64}"
-    fi
+    # Use only the 64-bit library. The 32-bit variant (libfiletracker32.so)
+    # is only needed if you specifically know your build spawns 32-bit host
+    # tools. For most builds (Ramses, Yocto, CMake) 64-bit only is correct.
+    export LD_PRELOAD="${_BFT_LIB64}"
 
     echo "✅ Tracking ON"
     echo "   LD_PRELOAD         = ${LD_PRELOAD}"
