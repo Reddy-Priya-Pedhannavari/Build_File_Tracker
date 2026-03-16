@@ -334,8 +334,10 @@ static void flush_to_jsonl(const char* output_file) {
                 "\"file_type\":\"%s\",\"access_count\":%lu}\n",
                 escaped, entry->package_name,
                 entry->file_type, entry->access_count);
-            if (len > 0 && len < (int)sizeof(line))
-                (void)write(fd, line, (size_t)len);
+            if (len > 0 && len < (int)sizeof(line)) {
+                ssize_t _wr = write(fd, line, (size_t)len);
+                (void)_wr;
+            }
             entry = entry->next;
         }
     }
@@ -359,8 +361,10 @@ static void flush_to_csv(const char* output_file) {
             int len = snprintf(line, sizeof(line), "\"%s\",\"%s\",\"%s\",%lu\n",
                                entry->filepath, entry->package_name,
                                entry->file_type, entry->access_count);
-            if (len > 0 && len < (int)sizeof(line))
-                (void)write(fd, line, (size_t)len);
+            if (len > 0 && len < (int)sizeof(line)) {
+                ssize_t _wr = write(fd, line, (size_t)len);
+                (void)_wr;
+            }
             entry = entry->next;
         }
     }
