@@ -14,6 +14,11 @@
 _BFT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _BFT_LIB64="${_BFT_DIR}/src/libfiletracker.so"
 _BFT_LIB32="${_BFT_DIR}/src/libfiletracker32.so"
+# $LIB-token path: linker expands $LIB per-process to the correct arch dir.
+# 64-bit processes get lib/x86_64-linux-gnu/libfiletracker.so
+# 32-bit processes get lib/i386-linux-gnu/libfiletracker.so
+# This means zero wrong-ELF-class errors even in mixed 32/64-bit builds.
+_BFT_LIB_TOKEN="${_BFT_DIR}/src/lib/\$LIB/libfiletracker.so"
 
 _bft_on() {
     local report_dir="${1:-/tmp/bft_reports}"
@@ -22,10 +27,14 @@ _bft_on() {
     export FILE_TRACKER_JSON="${report_dir}/reports.json"
     export FILE_TRACKER_FILTER_DIR="${report_dir%/*}"  # parent of report_dir
 
-    # Use only the 64-bit library. The 32-bit variant (libfiletracker32.so)
-    # is only needed if you specifically know your build spawns 32-bit host
-    # tools. For most builds (Ramses, Yocto, CMake) 64-bit only is correct.
-    export LD_PRELOAD="${_BFT_LIB64}"
+    # Use the $LIB dynamic token so the linker picks the right arch automatically.
+    # Works for both 32-bit and 64-bit processes with zero error messages.
+    # Falls back to plain 64-bit .so if the $LIB subdirs haven't been built yet.
+    if [ -d "${_BFT_DIR}/src/lib" ]; then
+        export LD_PRELOAD="${_BFT_LIB_TOKEN}"
+    else
+        export LD_PRELOAD="${_BFT_LIB64}"
+    fi
 
     echo "✅ Tracking ON"
     echo "   LD_PRELOAD         = ${LD_PRELOAD}"
